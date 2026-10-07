@@ -1,0 +1,70 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: mongodb-set-domain
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: mongodb-set-domain
+  namespace: default
+rules:
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    resourceNames: ["mongodb-external-access"]
+    verbs: ["get"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["applications"]
+    resourceNames: ["mongodb-replicaset"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: mongodb-set-domain
+  namespace: default
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: mongodb-set-domain
+subjects:
+  - kind: ServiceAccount
+    name: mongodb-set-domain
+    namespace: default
+---
+# Runs after Argo has created this Application. Terraform only leaves the hostname
+# in the mongodb-external-access ConfigMap; child apps do not exist at apply time.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: mongodb-set-domain
+  namespace: default
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  ttlSecondsAfterFinished: 300
+  template:
+    spec:
+      serviceAccountName: mongodb-set-domain
+      restartPolicy: Never
+      containers:
+        - name: set-domain
+          image: docker.io/bitnamilegacy/kubectl:1.33.4-debian-12-r0
+          command: ["/bin/bash", "-ec"]
+          args:
+            - |
+              set -euo pipefail
+              DOMAIN=$(kubectl get configmap mongodb-external-access -n default -o jsonpath='{.data.domain}')
+              test -n "$DOMAIN"
+              CURRENT=$(kubectl get application mongodb-replicaset -n default -o jsonpath='{.spec.sources[2].helm.parameters[?(@.name=="externalAccess.service.domain")].value}')
+              if [ "$CURRENT" = "$DOMAIN" ]; then
+                exit 0
+              fi
+              if [ -z "$(kubectl get application mongodb-replicaset -n default -o jsonpath='{.spec.sources[2].helm.parameters}')" ]; then
+                OP=add
+              else
+                OP=replace
+              fi
+              kubectl patch application mongodb-replicaset -n default --type=json --patch="[{\"op\":\"${OP}\",\"path\":\"/spec/sources/2/helm/parameters\",\"value\":[{\"name\":\"externalAccess.service.domain\",\"value\":\"${DOMAIN}\"}]}]"
