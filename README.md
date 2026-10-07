@@ -37,7 +37,7 @@ Child app: `gitops/apps/nodejs_app.yaml` points at the in-repo Helm chart `gitop
 
 The process listens on `PORT` and falls back to `8080` when that variable is unset. The chart uses `config.PORT` (default `8080`) for the container port, Service, and Ingress, and the probes follow that container port. Changing `PORT` on the running pods, then restarting them, leaves those objects on the rendered port. Probes fail, the pods restart, and the Service stops sending traffic. Change the port through `config.PORT` in `gitops/workloads/nodejs/values.yaml` and sync the chart so the Deployment, Service, and Ingress move with it.
 
-The container image is a placeholder in `gitops/workloads/nodejs/values.yaml` (`image.repository` / `image.tag`) until CI publishes one. Pods will stay `ImagePullBackOff` until that is set.
+The container image is `ghcr.io/simzacks/sample-nodejs`. The tag is `image.tag` in `gitops/workloads/nodejs/values.yaml`.
 
 Ingress uses Traefik (`websecure` + TLS), same pattern as Argo CD. Set `ingress.hostname` to `app.<load-balancer-ip>.sslip.io` (replace `0.0.0.0` in values with the cluster LB IP).
 
