@@ -19,8 +19,9 @@ ingress:
   annotations:
     traefik.ingress.kubernetes.io/router.entrypoints: websecure
     traefik.ingress.kubernetes.io/router.tls: "true"
-  # Set to app.<cluster-lb-ip>.sslip.io (same pattern as Argo CD).
-  hostname: app.0.0.0.0.sslip.io
+  # Empty host: Traefik matches any Host. Reach the app at app.<lb-ip>.sslip.io
+  # (terraform output app_access). Set a hostname here only to pin a specific name.
+  hostname: ""
   path: /
   pathType: Prefix
 
