@@ -178,29 +178,3 @@ jobs:
           tags: ${{ steps.tags.outputs.push_tags }}
           cache-from: type=local,src=/tmp/buildx-cache
 
-      - name: Make package private
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          pkg="$(echo "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')"
-          for attempt in 1 2 3 4 5 6; do
-            if gh api --method POST \
-                -H "Accept: application/vnd.github+json" \
-                "/user/packages/container/${pkg}/visibility" \
-                -f visibility=private >/dev/null; then
-              echo "Set ${pkg} visibility to private"
-              exit 0
-            fi
-            visibility="$(gh api -H "Accept: application/vnd.github+json" \
-              "/user/packages/container/${pkg}" --jq .visibility 2>/dev/null || true)"
-            if [ "${visibility}" = "private" ]; then
-              echo "Package ${pkg} is already private"
-              exit 0
-            fi
-            echo "Visibility is '${visibility:-unknown}', retrying (${attempt}/6)"
-            sleep 5
-          done
-          echo "Could not set package visibility to private" >&2
-          exit 1
