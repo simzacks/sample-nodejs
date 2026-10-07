@@ -12,10 +12,11 @@ spec:
     - repoURL: https://github.com/simzacks/sample-nodejs.git
       targetRevision: main
       path: gitops/workloads/mongodb/manifests
-    - chart: mongodb
-      repoURL: oci://registry-1.docker.io/bitnamicharts
-      # 17.0.2 is no longer published; 16.5.0 is the last 8.x chart line. Image tag pins 8.0.13.
-      targetRevision: 16.5.0
+    # Full OCI chart URL. A separate chart: field is not appended to an oci:// repoURL.
+    # 16.5.45 is the last chart whose appVersion is MongoDB 8.0.13.
+    - repoURL: oci://registry-1.docker.io/bitnamicharts/mongodb
+      path: .
+      targetRevision: 16.5.45
       helm:
         valueFiles:
           - $values/gitops/workloads/mongodb/values.yaml

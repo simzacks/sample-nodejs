@@ -2,6 +2,8 @@ architecture: replicaset
 replicaCount: 3
 
 image:
+  # 8.0.13 was removed from bitnami/mongodb; the same tag is on bitnamilegacy.
+  repository: bitnamilegacy/mongodb
   tag: 8.0.13-debian-12-r0
 
 auth:
@@ -28,6 +30,9 @@ externalAccess:
 
 rbac:
   create: true
+# Pod token. serviceAccount.automountServiceAccountToken only sets the field on the
+# ServiceAccount; the chart refuses to render externalAccess + autoDiscovery without this.
+automountServiceAccountToken: true
 serviceAccount:
   create: true
   automountServiceAccountToken: true
@@ -47,3 +52,5 @@ arbiter:
 
 metrics:
   enabled: true
+  image:
+    repository: bitnamilegacy/mongodb-exporter
