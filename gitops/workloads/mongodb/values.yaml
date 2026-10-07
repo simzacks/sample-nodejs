@@ -1,0 +1,49 @@
+architecture: replicaset
+replicaCount: 3
+
+image:
+  tag: 8.0.13-debian-12-r0
+
+auth:
+  enabled: true
+  existingSecret: mongodb-credentials
+  usernames:
+    - appuser
+  databases:
+    - mydatabase
+
+externalAccess:
+  enabled: true
+  autoDiscovery:
+    enabled: true
+    resources:
+      requests:
+        cpu: 50m
+        memory: 64Mi
+      limits:
+        cpu: 100m
+        memory: 128Mi
+  service:
+    type: NodePort
+
+rbac:
+  create: true
+serviceAccount:
+  create: true
+  automountServiceAccountToken: true
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+persistence:
+  enabled: false
+arbiter:
+  enabled: false
+
+metrics:
+  enabled: true

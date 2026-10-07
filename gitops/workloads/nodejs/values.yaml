@@ -1,0 +1,47 @@
+replicaCount: 2
+
+image:
+  repository: example.com/sample-nodejs
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  type: ClusterIP
+
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    traefik.ingress.kubernetes.io/router.entrypoints: websecure
+    traefik.ingress.kubernetes.io/router.tls: "true"
+  # Set to app.<cluster-lb-ip>.sslip.io (same pattern as Argo CD).
+  hostname: app.0.0.0.0.sslip.io
+  path: /
+  pathType: Prefix
+
+config:
+  PORT: "8080"
+  NODE_ENV: production
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+probes:
+  readiness:
+    path: /ready
+    initialDelaySeconds: 5
+    periodSeconds: 10
+  liveness:
+    path: /live
+    initialDelaySeconds: 10
+    periodSeconds: 20
