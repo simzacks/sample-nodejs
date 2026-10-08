@@ -30,15 +30,45 @@ externalAccess:
     type: NodePort
     # Cluster so every node accepts every member port. Local would only answer on the node running that pod.
     externalTrafficPolicy: Cluster
-    # domain is intentionally unset here. Terraform stores the load balancer IPv4 in
-    # the mongodb-external-access ConfigMap. The PreSync hook copies it onto this
-    # Application and fails that sync, so the pods are created only after that address
-    # is set. An empty domain advertises the node private IP. A hostname is not used:
-    # sslip.io publishes an IPv6 address that does not reach the load balancer.
+    # Left empty. The chart would bake this in at render time, before Terraform
+    # knows the load balancer address, and an empty value advertises the node
+    # private IP. The command below substitutes the address from the ConfigMap
+    # when the pod starts. A hostname is not used: sslip.io publishes an IPv6
+    # address that does not reach the load balancer.
     nodePorts:
       - 30017
       - 30018
       - 30019
+
+# Chart setup.sh sets MONGODB_ADVERTISED_HOSTNAME to the node private IP when
+# externalAccess.service.domain is empty. Rewrite that line from the ConfigMap
+# Terraform applies before the master Application, then run the chart script.
+command:
+  - /bin/bash
+  - -ec
+args:
+  - |
+    set -euo pipefail
+    DOMAIN="$(tr -d '[:space:]' < /etc/mongodb-external/domain)"
+    if [ -z "$DOMAIN" ]; then
+      echo "mongodb-external-access ConfigMap has an empty domain" >&2
+      exit 1
+    fi
+    if ! grep -q 'export MONGODB_ADVERTISED_HOSTNAME=$MY_POD_HOST_IP' /scripts/setup.sh; then
+      echo "setup.sh does not advertise the node private IP; refusing to start" >&2
+      exit 1
+    fi
+    sed "s|export MONGODB_ADVERTISED_HOSTNAME=\$MY_POD_HOST_IP|export MONGODB_ADVERTISED_HOSTNAME=${DOMAIN}|" /scripts/setup.sh > /tmp/setup.sh
+    chmod +x /tmp/setup.sh
+    exec /tmp/setup.sh
+extraVolumes:
+  - name: mongodb-external-access
+    configMap:
+      name: mongodb-external-access
+extraVolumeMounts:
+  - name: mongodb-external-access
+    mountPath: /etc/mongodb-external
+    readOnly: true
 
 rbac:
   create: true

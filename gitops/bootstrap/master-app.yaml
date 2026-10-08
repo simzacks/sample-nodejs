@@ -18,11 +18,3 @@ spec:
     automated:
       prune: true
       selfHeal: true
-    syncOptions:
-      - RespectIgnoreDifferences=true
-  # The PreSync hook sets this Helm parameter from the load balancer hostname. It is not in git.
-  ignoreDifferences:
-    - group: argoproj.io
-      kind: Application
-      jsonPointers:
-        - /spec/sources/2/helm/parameters

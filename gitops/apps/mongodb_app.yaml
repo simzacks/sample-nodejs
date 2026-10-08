@@ -9,9 +9,6 @@ spec:
     - repoURL: https://github.com/simzacks/sample-nodejs.git
       targetRevision: main
       ref: values
-    - repoURL: https://github.com/simzacks/sample-nodejs.git
-      targetRevision: main
-      path: gitops/workloads/mongodb/manifests
     # Full OCI chart URL. A separate chart: field is not appended to an oci:// repoURL.
     # 16.5.45 is the last chart whose appVersion is MongoDB 8.0.13.
     - repoURL: oci://registry-1.docker.io/bitnamicharts/mongodb
@@ -27,9 +24,3 @@ spec:
     automated:
       prune: true
       selfHeal: true
-    # The PreSync hook fails the first attempt after it records the load balancer
-    # hostname. A retry of that same operation would still render the old sources,
-    # so do not retry it. The hostname change makes the spec differ from the failed
-    # attempt, and automated sync starts a new one.
-    retry:
-      limit: 0
