@@ -3,12 +3,20 @@ kind: ServiceAccount
 metadata:
   name: mongodb-set-domain
   namespace: default
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: mongodb-set-domain
   namespace: default
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
 rules:
   - apiGroups: [""]
     resources: ["configmaps"]
@@ -24,6 +32,10 @@ kind: RoleBinding
 metadata:
   name: mongodb-set-domain
   namespace: default
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "-1"
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
@@ -33,16 +45,20 @@ subjects:
     name: mongodb-set-domain
     namespace: default
 ---
-# Runs after Argo has created this Application. Terraform only leaves the hostname
-# in the mongodb-external-access ConfigMap; child apps do not exist at apply time.
+# Runs before MongoDB manifests are applied. Terraform stores the load balancer
+# hostname in the mongodb-external-access ConfigMap. This hook copies it onto the
+# Application and fails the sync so that attempt cannot initiate the replica set.
+# The failed attempt's sources no longer match the spec, so automated sync starts
+# a new one that renders the public hostname before the pods are created.
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: mongodb-set-domain
   namespace: default
   annotations:
-    argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   ttlSecondsAfterFinished: 300
   template:
@@ -56,8 +72,18 @@ spec:
           args:
             - |
               set -euo pipefail
-              DOMAIN=$(kubectl get configmap mongodb-external-access -n default -o jsonpath='{.data.domain}')
-              test -n "$DOMAIN"
+              DOMAIN=""
+              for _ in $(seq 1 90); do
+                DOMAIN=$(kubectl get configmap mongodb-external-access -n default -o jsonpath='{.data.domain}' 2>/dev/null || true)
+                if [ -n "$DOMAIN" ]; then
+                  break
+                fi
+                sleep 2
+              done
+              if [ -z "$DOMAIN" ]; then
+                echo "mongodb-external-access ConfigMap has no domain yet"
+                exit 1
+              fi
               CURRENT=$(kubectl get application mongodb-replicaset -n default -o jsonpath='{.spec.sources[2].helm.parameters[?(@.name=="externalAccess.service.domain")].value}')
               if [ "$CURRENT" = "$DOMAIN" ]; then
                 exit 0
@@ -68,3 +94,5 @@ spec:
                 OP=replace
               fi
               kubectl patch application mongodb-replicaset -n default --type=json --patch="[{\"op\":\"${OP}\",\"path\":\"/spec/sources/2/helm/parameters\",\"value\":[{\"name\":\"externalAccess.service.domain\",\"value\":\"${DOMAIN}\"}]}]"
+              echo "Set externalAccess.service.domain to ${DOMAIN}. Failing this sync so MongoDB is created on the next one."
+              exit 1

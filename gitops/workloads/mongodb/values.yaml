@@ -29,9 +29,11 @@ externalAccess:
     type: NodePort
     # Cluster so every node accepts every member port. Local would only answer on the node running that pod.
     externalTrafficPolicy: Cluster
-    # domain is intentionally unset here. Terraform stores the load balancer hostname in
-    # the mongodb-external-access ConfigMap, and the PostSync hook copies it onto this
-    # Application after Argo creates it. An empty domain advertises the node private IP.
+    # domain is intentionally unset here. Terraform stores the load balancer IPv4 in
+    # the mongodb-external-access ConfigMap. The PreSync hook copies it onto this
+    # Application and fails that sync, so the pods are created only after that address
+    # is set. An empty domain advertises the node private IP. A hostname is not used:
+    # sslip.io publishes an IPv6 address that does not reach the load balancer.
     nodePorts:
       - 30017
       - 30018

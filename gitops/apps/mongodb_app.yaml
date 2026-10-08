@@ -27,3 +27,9 @@ spec:
     automated:
       prune: true
       selfHeal: true
+    # The PreSync hook fails the first attempt after it records the load balancer
+    # hostname. A retry of that same operation would still render the old sources,
+    # so do not retry it. The hostname change makes the spec differ from the failed
+    # attempt, and automated sync starts a new one.
+    retry:
+      limit: 0
