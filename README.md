@@ -39,7 +39,7 @@ The process listens on `PORT` and falls back to `8080` when that variable is uns
 
 The container image is `ghcr.io/simzacks/sample-nodejs`. The tag is `image.tag` in `gitops/workloads/nodejs/values.yaml`.
 
-Ingress uses Traefik (`websecure` + TLS). The rule has no Host so it matches any name on the load balancer; Argo CD keeps the more specific `argocd.<lb-ip>.sslip.io` Host. After apply, open `http://app.<load-balancer-ip>.sslip.io` from the `app_access` Terraform output. Set `ingress.hostname` in values only if you need to pin a specific name.
+Ingress uses Traefik’s `web` entrypoint (port 80, TLS off), same as Argo CD. The rule has no Host so it matches any name on the load balancer; Argo CD keeps the more specific `argocd.<lb-ip>.sslip.io` Host. After apply, open `http://app.<load-balancer-ip>.sslip.io` from the `app_access` Terraform output. Set `ingress.hostname` in values only if you need to pin a specific name.
 
 ### MongoDB
 

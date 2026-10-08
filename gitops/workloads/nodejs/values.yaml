@@ -17,8 +17,8 @@ ingress:
   enabled: true
   className: traefik
   annotations:
-    traefik.ingress.kubernetes.io/router.entrypoints: websecure
-    traefik.ingress.kubernetes.io/router.tls: "true"
+    traefik.ingress.kubernetes.io/router.entrypoints: web
+    traefik.ingress.kubernetes.io/router.tls: "false"
   # Empty host: Traefik matches any Host. Reach the app at app.<lb-ip>.sslip.io
   # (terraform output app_access). Set a hostname here only to pin a specific name.
   hostname: ""
