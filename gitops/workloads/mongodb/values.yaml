@@ -8,6 +8,7 @@ image:
 
 auth:
   enabled: true
+  # Created by sample-infra from random_password.
   existingSecret: mongodb-credentials
   usernames:
     - appuser

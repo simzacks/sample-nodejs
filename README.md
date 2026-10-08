@@ -43,7 +43,5 @@ Ingress uses Traefik’s `web` entrypoint (port 80, TLS off), same as Argo CD. T
 
 ### MongoDB
 
-Child app: `gitops/apps/mongodb_app.yaml` (chart source, destination, sync only). ReplicaSet, NodePort, image `8.0.13`, and resources are in `gitops/workloads/mongodb/values.yaml`. Passwords are a SealedSecret in `gitops/workloads/mongodb/manifests/` encrypted with `gitops/sealed-secrets-cert.pem`.
-
-To rotate credentials, set `MONGODB_ROOT_PASSWORD`, `MONGODB_PASSWORD`, and `MONGODB_REPLICA_SET_KEY`, then run `gitops/workloads/mongodb/seal-credentials.sh`. The matching controller private key lives in `sample-infra/sealed-secrets-key.yaml` (not in this repo).
+Child app: `gitops/apps/mongodb_app.yaml` (chart source, destination, sync only). ReplicaSet, NodePort, image `8.0.13`, and resources are in `gitops/workloads/mongodb/values.yaml`. The chart reads the `mongodb-credentials` Secret and does not create it. `sample-infra` generates that Secret on apply. `terraform output mongodb_access` prints the `kubectl` commands that read the app password, root password, and replica set key.
 
