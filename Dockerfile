@@ -1,16 +1,11 @@
 FROM debian:trixie-slim AS build
 
-ARG TARGETARCH
 ENV NODE_VERSION=22.1.0
+ENV NODE_ARCH=x64
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl xz-utils \
     && rm -rf /var/lib/apt/lists/* \
-    && case "${TARGETARCH}" in \
-         amd64) NODE_ARCH=x64 ;; \
-         arm64) NODE_ARCH=arm64 ;; \
-         *) echo "unsupported architecture: ${TARGETARCH}" >&2; exit 1 ;; \
-       esac \
     && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" \
     && curl -fsSLO "https://nodejs.org/dist/v${NODE_VERSION}/SHASUMS256.txt" \
     && grep " node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz$" SHASUMS256.txt | sha256sum -c - \

@@ -15,6 +15,21 @@ A lightweight Node.js application. It features basic web endpoints, Prometheus m
 
 - Node.js (v22.1.0)
 
+## Package changes
+- Added semantic-release as a dev dependency.
+  - Dependabot (on GitHub) raised alerts on its dependencies, which don't have unaffected versions that can be upgraded to. However, these dependencies are Dev and not included in the image (npm ci --omit=dev), so I decided to allow it to stay.
+
+## Container
+- multi-stage process to prepare everything in a full OS environment and then cut down everything that is not needed for the application.
+- Build image: debian:trixie-slim, industry standard for building Node.js containers. Uses slim version to remove any additional bloat.
+- Production image: gcr.io/distroless/cc-debian13:nonroot - Google's Distroless base image (trixie=13) which contains the bare minimum needed to execute the binary. This keeps it super small and secure. 
+
+## CI
+- activated on either a push or pull request to the following files: app.js, package.json, package-lock.json, Dockerfile and the build-image.yml workflow. The other files should not influence a build.
+
+## 
+
+
 ## Commit messages
 
 The image version comes from commit messages on `main`. That version is the container tag.
@@ -26,6 +41,12 @@ The image version comes from commit messages on `main`. That version is the cont
 When several commits are released together, the highest bump wins. A `feat` together with a comment change is a minor release.
 
 The build runs when `app.js`, `package.json`, `package-lock.json`, `Dockerfile`, or `.github/workflows/build-image.yml` changes. A comment edit in one of those files still publishes a new patch.
+
+Dependabot alerts on this repo come from semantic-release, which is a devDependency. Two chains have no patched release. `micromatch` pulls `braces` 3.0.3 (`GHSA-vfj7-8cjw-p6xm`); every published version is affected, and the maintainer is not shipping a fix. `@semantic-release/npm` bundles the `npm` package, whose nested copies of `sigstore`, `pacote`, `undici`, `ip-address`, `http-cache-semantics`, `brace-expansion`, and `postcss-selector-parser` are `bundleDependencies`, so an override cannot replace them. `semantic-release` 25 still pulls both chains.
+
+The image build runs `npm ci --omit=dev`, so those packages are not in the container. They do run in the release job, on this repo's branch name, asset list, and commit messages. The Express app does not load them.
+
+The workflow fails the image job when production dependencies have a high or critical advisory (`npm audit --omit=dev --audit-level=high`). Those devDependency advisories are not a release gate. CodeQL and a full-history secret scan have to pass before the image is built. Trivy still scans the built image for high and critical vulnerabilities.
 
 ## GitOps
 
