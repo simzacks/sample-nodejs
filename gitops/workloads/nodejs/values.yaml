@@ -6,11 +6,13 @@ image:
 imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
+
 # Dedicated ServiceAccount. The app never calls the Kubernetes API, so no API token is mounted.
 serviceAccount:
   create: true
   name: ""
   automountServiceAccountToken: false
+
 # The image uses the distroless "nonroot" user. runAsUser must be numeric: with a named
 # image user (USER nonroot) the kubelet cannot verify runAsNonRoot and refuses to start the pod.
 podSecurityContext:
@@ -19,18 +21,21 @@ podSecurityContext:
   runAsGroup: 65532
   seccompProfile:
     type: RuntimeDefault
+
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   capabilities:
     drop:
       - ALL
+
 # Replace pods one at a time and never drop below the desired replica count.
 strategy:
   type: RollingUpdate
   rollingUpdate:
     maxSurge: 1
     maxUnavailable: 0
+
 # Keep replicas on different nodes so one node failure does not take the app down.
 topologySpread:
   enabled: true
@@ -38,11 +43,14 @@ topologySpread:
   topologyKey: kubernetes.io/hostname
   whenUnsatisfiable: DoNotSchedule
 # Limits voluntary disruptions (node drains, upgrades). Only rendered when replicaCount > 1.
+
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
+
 service:
   type: ClusterIP
+
 ingress:
   enabled: true
   className: traefik
@@ -54,9 +62,17 @@ ingress:
   hostname: ""
   path: /
   pathType: Prefix
+
 config:
   PORT: "8080"
   NODE_ENV: production
+  NODE_OPTIONS=: --max-old-space-size=80
+
+# The node.js app uses minimal resources - no heavy processing.
+# the 50m request should be enough for the app to run, but is 400% burstable in the event of a spike
+# The minimum RAM for a nodejs application with express is around 40Mi, so 64Mi is a good starting point.
+# The metrics gatherer can push it higher, but with the NODE_OPTIONS garbage collection it will never get that high
+
 resources:
   requests:
     cpu: 50m
@@ -64,6 +80,7 @@ resources:
   limits:
     cpu: 200m
     memory: 128Mi
+
 probes:
   readiness:
     path: /ready

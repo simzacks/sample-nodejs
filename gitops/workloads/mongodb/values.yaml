@@ -19,6 +19,7 @@ externalAccess:
   enabled: true
   autoDiscovery:
     enabled: true
+    # This is for a sidecar with no real compute. I gave it a very small footprint.
     resources:
       requests:
         cpu: 50m
@@ -76,14 +77,18 @@ automountServiceAccountToken: true
 serviceAccount:
   create: true
   automountServiceAccountToken: true
-
+# The mongodb minimum is 1GB of memory, I gave it 1.25 for some breathing room. 
+# Memory should not be burstable for a DB (or other critical infra component) as it will become a
+# first target for the scheduler to kill if it needs to free up memory.
+# The CPU can be burstable, without as it generally only needs the extra CPU on spikes and indexing operations.
+# This does not make it a candidate for process killing.
 resources:
   requests:
     cpu: 250m
-    memory: 256Mi
+    memory: 1280Mi
   limits:
-    cpu: 500m
-    memory: 512Mi
+    cpu: 1000m
+    memory: 1280Mi
 
 persistence:
   enabled: false
