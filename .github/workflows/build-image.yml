@@ -234,4 +234,40 @@ jobs:
           tags: ${{ steps.tags.outputs.push_tags }}
           cache-from: type=local,src=/tmp/buildx-cache
 
+  gitops:
+    name: Update Helm tag
+    needs: [image, release]
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      needs.release.outputs.released == 'true' &&
+      needs.image.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Set image tag and push
+        env:
+          VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git pull --rebase origin main
+          sed -i "s/^  tag: .*/  tag: \"${VERSION}\"/" gitops/workloads/nodejs/values.yaml
+          grep -qx "  tag: \"${VERSION}\"" gitops/workloads/nodejs/values.yaml
+          git add gitops/workloads/nodejs/values.yaml
+          if git diff --cached --quiet; then
+            echo "image tag already set to ${VERSION}"
+            exit 0
+          fi
+          git commit -m "chore(gitops): set image tag to ${VERSION} [skip ci]"
+          git push origin HEAD:main
+
 

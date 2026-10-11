@@ -15,9 +15,14 @@ A lightweight Node.js application. It features basic web endpoints, Prometheus m
 
 - Node.js (v22.1.0)
 
-## Package changes
+## Semantic Versioning
 - Added semantic-release as a dev dependency.
   - Dependabot (on GitHub) raised alerts on its dependencies, which don't have unaffected versions that can be upgraded to. However, these dependencies are Dev and not included in the image (npm ci --omit=dev), so I decided to allow it to stay.
+  - versioning is based on the commit messages.
+    - A breaking change is a major bump (`1.0.0` to `2.0.0`). Add a `BREAKING CHANGE:` footer, or put `!` after the type: `feat!: remove /classified`.
+    - A new feature is a minor bump (i.e. `feat: awesome new feature` is a minor bump (`1.0.0` to `1.1.0`))
+    - All other commits are a patch bump ((`1.1.0` to `1.1.1`)
+    - When several commits are pushed at the same time, the highest bump wins.
 
 ## Container
 - multi-stage process to prepare everything in a full OS environment and then cut down everything that is not needed for the application.
@@ -26,43 +31,35 @@ A lightweight Node.js application. It features basic web endpoints, Prometheus m
 
 ## CI
 - activated on either a push or pull request to the following files: app.js, package.json, package-lock.json, Dockerfile and the build-image.yml workflow. The other files should not influence a build.
-
-## 
-
-
-## Commit messages
-
-The image version comes from commit messages on `main`. That version is the container tag.
-
-- `feat: add a health endpoint` is a minor bump (`1.0.0` to `1.1.0`).
-- A breaking change is a major bump (`1.0.0` to `2.0.0`). Add a `BREAKING CHANGE:` footer, or put `!` after the type: `feat!: remove /classified`.
-- Every other message is a patch bump (`1.0.0` to `1.0.1`). That includes `fix:`, `chore:`, `docs:`, and a plain sentence such as `update a comment`.
-
-When several commits are released together, the highest bump wins. A `feat` together with a comment change is a minor release.
-
-The build runs when `app.js`, `package.json`, `package-lock.json`, `Dockerfile`, or `.github/workflows/build-image.yml` changes. A comment edit in one of those files still publishes a new patch.
-
-Dependabot alerts on this repo come from semantic-release, which is a devDependency. Two chains have no patched release. `micromatch` pulls `braces` 3.0.3 (`GHSA-vfj7-8cjw-p6xm`); every published version is affected, and the maintainer is not shipping a fix. `@semantic-release/npm` bundles the `npm` package, whose nested copies of `sigstore`, `pacote`, `undici`, `ip-address`, `http-cache-semantics`, `brace-expansion`, and `postcss-selector-parser` are `bundleDependencies`, so an override cannot replace them. `semantic-release` 25 still pulls both chains.
-
-The image build runs `npm ci --omit=dev`, so those packages are not in the container. They do run in the release job, on this repo's branch name, asset list, and commit messages. The Express app does not load them.
-
-The workflow fails the image job when production dependencies have a high or critical advisory (`npm audit --omit=dev --audit-level=high`). Those devDependency advisories are not a release gate. CodeQL and a full-history secret scan have to pass before the image is built. Trivy still scans the built image for high and critical vulnerabilities.
+- CodeQL check - security vulnerabilities, logic bugs, and code quality issues
+  - This can be configured to be executed directly by GitHub without requiring it in the workflow file
+- Dependency Audit - executes npm audit with the omit=dev flag so that it only checks dependency vulnerabilities for packages that will be deployed in the production environment
+- Secret scan - uses the gitleaks action to review the source code if there are any credentials, tokens, ... in the code.
+- Release - Uses the semantic-versioning package to determine a new version number, and creates a git tag with that version.
+- Image - Only executes if the other jobs completed successfully.
+  - Determines the tag
+  - Builds the docker container
+  - Scans the built container (using trivy) for CVEs, security weaknesses, exposed secrets, software licenses
+  - Uploads the file to be included in the Github Security tab
+  - Fails if there is a high/critical failure
+  - Pushes the image with the version tag to the GitHub registry
+  - After a versioned image is pushed, updates `image.tag` in `gitops/workloads/nodejs/values.yaml` and pushes that commit to `main` so Argo CD redeploys
 
 ## GitOps
-
-App of apps: `gitops/master-app.yaml` is the master Application. It watches `gitops/apps` and syncs every child Application in that directory. `sample-infra` downloads that file from GitHub `main` and applies it once Argo CD is installed. Every Application, including external Helm charts, deploys into the `default` namespace.
-
-### Node.js app
-
-Child app: `gitops/apps/nodejs_app.yaml` points at the in-repo Helm chart `gitops/workloads/nodejs`. The workload is a **Deployment** (stateless Express: no PVC, no sticky identity). Readiness and liveness probes hit `/ready` and `/live`. Config (`PORT`, `NODE_ENV`) is a ConfigMap; there is no Secret because the app does not take credentials.
-
-The process listens on `PORT` and falls back to `8080` when that variable is unset. The chart uses `config.PORT` (default `8080`) for the container port, Service, and Ingress, and the probes follow that container port. Changing `PORT` on the running pods, then restarting them, leaves those objects on the rendered port. Probes fail, the pods restart, and the Service stops sending traffic. Change the port through `config.PORT` in `gitops/workloads/nodejs/values.yaml` and sync the chart so the Deployment, Service, and Ingress move with it.
-
-The container image is `ghcr.io/simzacks/sample-nodejs`. The tag is `image.tag` in `gitops/workloads/nodejs/values.yaml`.
-
-Ingress uses Traefik’s `web` entrypoint (port 80, TLS off), same as Argo CD. The rule has no Host so it matches any name on the load balancer; Argo CD keeps the more specific `argocd.<lb-ip>.sslip.io` Host. After apply, open `http://app.<load-balancer-ip>.sslip.io` from the `app_access` Terraform output. Set `ingress.hostname` in values only if you need to pin a specific name.
-
-### MongoDB
-
-Child app: `gitops/apps/mongodb_app.yaml` (chart source, destination, sync only). ReplicaSet, NodePort, image `8.0.13`, and resources are in `gitops/workloads/mongodb/values.yaml`. The chart reads the `mongodb-credentials` Secret and does not create it. `sample-infra` generates that Secret on apply. `terraform output mongodb_access` prints the `kubectl` commands that read the app password, root password, and replica set key.
-
+- The argo deployment pattern used in this repo is an App of Apps pattern, in which the master-app `gitops/bootstrap/master-app.yaml` is basically a pointer telling argocd which directory the argo application can be found. 
+- The apps themselves are found in the `gitops/apps`, and are argocd `Applications` that point to the actual kubernetes definition files in the repo.
+- This project has 2 applications, nodejs_app and mongodb
+- nodejs_app
+  - Helm chart defines the k8s resources that will be used to deploy the app, as well as any environment variables defined in the app. The templates use the values in the `values.yaml` to generate the needed k8s resources. In this case the resources used are:
+    - ConfigMap, Ingress, Deployment, Service
+    - It deploys the given image as 2 replicas with a ClusterIP using the traefik igress without TLS on port 8080, with readiness and liveness probes pointed to enpoints in the application.
+- mongodb
+  - MongoDB is installed as a 3 node cluster, following a requirement of using a bitnami chart for version 8.0.13
+    - The open source charts for this version have been moved to a bitnami-legacy repo, so the image section in the helm values file specifies where to get it from.
+  - The credentials and external domain name were applied during infrastructure deployment
+    - This enables all future syncs/deployments to use the same credentials
+    - The infra deployment is the only place where we know the load balancer address, which is needed for the external connection string.
+  - Ports for connecting are defined as NodePorts - 30017, 30018 and 30019
+    - The bitnami chart assigns each one of these ports to one of the specific pods in the replica-set, so each time a connection hits one of those ports it will always go to the same pod.
+  - Uses the command section of the chart to override the default Advertised Hostname to the load balancer ip address that was saved as a config map by the Terraform infra.
+  - Enables the metrics, which can be accessed on port 10250
