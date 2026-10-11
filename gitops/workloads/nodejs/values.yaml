@@ -1,21 +1,16 @@
 replicaCount: 2
-
 image:
   repository: ghcr.io/simzacks/sample-nodejs
-  tag: "1.1.0"
+  tag: "1.1.1"
   pullPolicy: IfNotPresent
-
 imagePullSecrets: []
-
 nameOverride: ""
 fullnameOverride: ""
-
 # Dedicated ServiceAccount. The app never calls the Kubernetes API, so no API token is mounted.
 serviceAccount:
   create: true
   name: ""
   automountServiceAccountToken: false
-
 # The image uses the distroless "nonroot" user. runAsUser must be numeric: with a named
 # image user (USER nonroot) the kubelet cannot verify runAsNonRoot and refuses to start the pod.
 podSecurityContext:
@@ -24,36 +19,30 @@ podSecurityContext:
   runAsGroup: 65532
   seccompProfile:
     type: RuntimeDefault
-
 securityContext:
   allowPrivilegeEscalation: false
   readOnlyRootFilesystem: true
   capabilities:
     drop:
       - ALL
-
 # Replace pods one at a time and never drop below the desired replica count.
 strategy:
   type: RollingUpdate
   rollingUpdate:
     maxSurge: 1
     maxUnavailable: 0
-
 # Keep replicas on different nodes so one node failure does not take the app down.
 topologySpread:
   enabled: true
   maxSkew: 1
   topologyKey: kubernetes.io/hostname
   whenUnsatisfiable: DoNotSchedule
-
 # Limits voluntary disruptions (node drains, upgrades). Only rendered when replicaCount > 1.
 podDisruptionBudget:
   enabled: true
   minAvailable: 1
-
 service:
   type: ClusterIP
-
 ingress:
   enabled: true
   className: traefik
@@ -65,11 +54,9 @@ ingress:
   hostname: ""
   path: /
   pathType: Prefix
-
 config:
   PORT: "8080"
   NODE_ENV: production
-
 resources:
   requests:
     cpu: 50m
@@ -77,7 +64,6 @@ resources:
   limits:
     cpu: 200m
     memory: 128Mi
-
 probes:
   readiness:
     path: /ready

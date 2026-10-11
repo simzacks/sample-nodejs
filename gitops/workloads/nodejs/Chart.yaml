@@ -3,4 +3,4 @@ name: sample-nodejs
 description: Stateless Express sample app for Kubernetes GitOps
 type: application
 version: 0.1.1
-appVersion: "1.0.4"
+appVersion: "1.1.1"
