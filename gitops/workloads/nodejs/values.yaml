@@ -10,6 +10,47 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
+# Dedicated ServiceAccount. The app never calls the Kubernetes API, so no API token is mounted.
+serviceAccount:
+  create: true
+  name: ""
+  automountServiceAccountToken: false
+
+# The image uses the distroless "nonroot" user. runAsUser must be numeric: with a named
+# image user (USER nonroot) the kubelet cannot verify runAsNonRoot and refuses to start the pod.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+# Replace pods one at a time and never drop below the desired replica count.
+strategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 1
+    maxUnavailable: 0
+
+# Keep replicas on different nodes so one node failure does not take the app down.
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: DoNotSchedule
+
+# Limits voluntary disruptions (node drains, upgrades). Only rendered when replicaCount > 1.
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+
 service:
   type: ClusterIP
 

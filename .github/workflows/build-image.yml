@@ -89,58 +89,20 @@ jobs:
           GITLEAKS_ENABLE_COMMENTS: false
           GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
 
-  release:
-    name: Release
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
-      issues: write
-      pull-requests: write
-      id-token: write
-    outputs:
-      version: ${{ steps.semantic.outputs.version }}
-      released: ${{ steps.semantic.outputs.released }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: true
-
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22.1.0
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Semantic release
-        id: semantic
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
-
+  # Pipeline order: scans -> build + Trivy + push (sha tag) -> release -> promote (version tag) -> gitops.
+  # Nothing is tagged, released or deployed unless every scan has passed.
   image:
     name: Build, scan, and push
-    needs: [release, codeql, audit, secrets]
-    if: >-
-      always() &&
-      (needs.release.result == 'success' || needs.release.result == 'skipped') &&
-      needs.codeql.result == 'success' &&
-      needs.audit.result == 'success' &&
-      needs.secrets.result == 'success'
+    needs: [codeql, audit, secrets]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
       packages: write
       security-events: write
-      attestations: write
-      id-token: write
+    outputs:
+      image: ${{ steps.tags.outputs.image }}
+      sha_tag: ${{ steps.tags.outputs.sha_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -152,20 +114,11 @@ jobs:
 
       - name: Image tags
         id: tags
-        env:
-          RELEASED: ${{ needs.release.outputs.released }}
-          VERSION: ${{ needs.release.outputs.version }}
         run: |
           image="ghcr.io/$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')"
-          local_tag="${image}:sha-${GITHUB_SHA}"
-          echo "local_tag=${local_tag}" >> "${GITHUB_OUTPUT}"
           {
-            echo "push_tags<<EOF"
-            echo "${local_tag}"
-            if [ "${RELEASED}" = "true" ] && [ -n "${VERSION}" ]; then
-              echo "${image}:${VERSION}"
-            fi
-            echo "EOF"
+            echo "image=${image}"
+            echo "sha_tag=${image}:sha-${GITHUB_SHA}"
           } >> "${GITHUB_OUTPUT}"
 
       - name: Build image
@@ -177,14 +130,14 @@ jobs:
           push: false
           provenance: false
           sbom: false
-          tags: ${{ steps.tags.outputs.local_tag }}
+          tags: ${{ steps.tags.outputs.sha_tag }}
           cache-to: type=local,dest=/tmp/buildx-cache,mode=max
 
       - name: Scan image with Trivy
         id: trivy
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ steps.tags.outputs.local_tag }}
+          image-ref: ${{ steps.tags.outputs.sha_tag }}
           format: table
           severity: HIGH,CRITICAL
           exit-code: "1"
@@ -196,7 +149,7 @@ jobs:
         if: always()
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          image-ref: ${{ steps.tags.outputs.local_tag }}
+          image-ref: ${{ steps.tags.outputs.sha_tag }}
           format: sarif
           output: trivy-results.sarif
           severity: HIGH,CRITICAL
@@ -231,17 +184,77 @@ jobs:
           push: true
           provenance: true
           sbom: true
-          tags: ${{ steps.tags.outputs.push_tags }}
+          tags: ${{ steps.tags.outputs.sha_tag }}
           cache-from: type=local,src=/tmp/buildx-cache
+
+  release:
+    name: Release
+    needs: [image]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      version: ${{ steps.semantic.outputs.version }}
+      released: ${{ steps.semantic.outputs.released }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22.1.0
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Semantic release
+        id: semantic
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release
+
+  # Adds the version tag to the image that was already built, scanned and pushed.
+  # No rebuild: the version tag points at the same digest (and attestations) as the sha tag.
+  promote:
+    name: Tag image with release version
+    needs: [image, release]
+    if: needs.release.outputs.released == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add version tag
+        env:
+          IMAGE: ${{ needs.image.outputs.image }}
+          SHA_TAG: ${{ needs.image.outputs.sha_tag }}
+          VERSION: ${{ needs.release.outputs.version }}
+        run: docker buildx imagetools create --tag "${IMAGE}:${VERSION}" "${SHA_TAG}"
 
   gitops:
     name: Update Helm tag
-    needs: [image, release]
-    if: >-
-      github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      needs.release.outputs.released == 'true' &&
-      needs.image.result == 'success'
+    needs: [release, promote]
+    if: needs.release.outputs.released == 'true' && needs.promote.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -256,18 +269,23 @@ jobs:
       - name: Set image tag and push
         env:
           VERSION: ${{ needs.release.outputs.version }}
+          VALUES_FILE: gitops/workloads/nodejs/values.yaml
+          CHART_FILE: gitops/workloads/nodejs/Chart.yaml
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git pull --rebase origin main
-          sed -i "s/^  tag: .*/  tag: \"${VERSION}\"/" gitops/workloads/nodejs/values.yaml
-          grep -qx "  tag: \"${VERSION}\"" gitops/workloads/nodejs/values.yaml
-          git add gitops/workloads/nodejs/values.yaml
+          # yq (mikefarah, v4) is preinstalled on ubuntu-latest runners.
+          yq -i '.image.tag = strenv(VERSION) | .image.tag style = "double"' "${VALUES_FILE}"
+          test "$(yq '.image.tag' "${VALUES_FILE}")" = "${VERSION}"
+          # Chart appVersion follows the deployed image tag.
+          yq -i '.appVersion = strenv(VERSION) | .appVersion style = "double"' "${CHART_FILE}"
+          test "$(yq '.appVersion' "${CHART_FILE}")" = "${VERSION}"
+          git add "${VALUES_FILE}" "${CHART_FILE}"
           if git diff --cached --quiet; then
             echo "image tag already set to ${VERSION}"
             exit 0
           fi
           git commit -m "chore(gitops): set image tag to ${VERSION} [skip ci]"
           git push origin HEAD:main
-
-

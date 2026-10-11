@@ -35,15 +35,16 @@ A lightweight Node.js application. It features basic web endpoints, Prometheus m
   - This can be configured to be executed directly by GitHub without requiring it in the workflow file
 - Dependency Audit - executes npm audit with the omit=dev flag so that it only checks dependency vulnerabilities for packages that will be deployed in the production environment
 - Secret scan - uses the gitleaks action to review the source code if there are any credentials, tokens, ... in the code.
-- Release - Uses the semantic-versioning package to determine a new version number, and creates a git tag with that version.
-- Image - Only executes if the other jobs completed successfully.
-  - Determines the tag
+- Job order: CodeQL, audit and secret scan (parallel) -> Image (build, scan, push) -> Release -> Promote -> GitOps. Each stage needs the previous one to succeed, so nothing is tagged, released or deployed if a scan fails.
+- Image - Only executes if CodeQL, audit and the secret scan passed.
   - Builds the docker container
-  - Scans the built container (using trivy) for CVEs, security weaknesses, exposed secrets, software licenses
+  - Scans the built container (using trivy) for CVEs
   - Uploads the file to be included in the Github Security tab
   - Fails if there is a high/critical failure
-  - Pushes the image with the version tag to the GitHub registry
-  - After a versioned image is pushed, updates `image.tag` in `gitops/workloads/nodejs/values.yaml` and pushes that commit to `main` so Argo CD redeploys
+  - On `main` only, pushes the scanned image to the GitHub registry with an immutable `sha-<commit>` tag (with provenance and SBOM attestations)
+- Release - Only on `main`, after the image passed its scan. Uses the semantic-release package to determine a new version number, and creates a git tag and GitHub release with that version.
+- Promote - Adds the version tag to the already-scanned image with `docker buildx imagetools create`. There is no rebuild, so the version tag points at the same digest that Trivy scanned.
+- GitOps - After the version tag exists, uses `yq` to set `image.tag` in `gitops/workloads/nodejs/values.yaml` and pushes that commit to `main` so Argo CD redeploys
 
 ## GitOps
 - The argo deployment pattern used in this repo is an App of Apps pattern, in which the master-app `gitops/bootstrap/master-app.yaml` is basically a pointer telling argocd which directory the argo application can be found. 
@@ -51,7 +52,11 @@ A lightweight Node.js application. It features basic web endpoints, Prometheus m
 - This project has 2 applications, nodejs_app and mongodb
 - nodejs_app
   - Helm chart defines the k8s resources that will be used to deploy the app, as well as any environment variables defined in the app. The templates use the values in the `values.yaml` to generate the needed k8s resources. In this case the resources used are:
-    - ConfigMap, Ingress, Deployment, Service
+    - ConfigMap, Ingress, Deployment, Service, ServiceAccount, PodDisruptionBudget
+    - Hardening: pods run as the numeric non-root user 65532 with the `RuntimeDefault` seccomp profile, a read-only root filesystem, no privilege escalation and all capabilities dropped. The dedicated ServiceAccount and the pods do not mount an API token, because the app never talks to the Kubernetes API.
+    - Availability: a topology spread constraint places the replicas on different nodes, a PodDisruptionBudget (`minAvailable: 1`) keeps one pod up during node drains, and the RollingUpdate strategy (`maxSurge: 1`, `maxUnavailable: 0`) replaces pods one at a time without reducing capacity.
+    - A `checksum/config` annotation on the pod template restarts the pods when the ConfigMap changes.
+    - The `app.kubernetes.io/version` label and the chart `appVersion` follow the deployed image tag. The CI GitOps job updates `image.tag` and `appVersion` in the same commit.
     - It deploys the given image as 2 replicas with a ClusterIP using the traefik igress without TLS on port 8080, with readiness and liveness probes pointed to enpoints in the application.
 - mongodb
   - MongoDB is installed as a 3 node cluster, following a requirement of using a bitnami chart for version 8.0.13
@@ -62,4 +67,4 @@ A lightweight Node.js application. It features basic web endpoints, Prometheus m
   - Ports for connecting are defined as NodePorts - 30017, 30018 and 30019
     - The bitnami chart assigns each one of these ports to one of the specific pods in the replica-set, so each time a connection hits one of those ports it will always go to the same pod.
   - Uses the command section of the chart to override the default Advertised Hostname to the load balancer ip address that was saved as a config map by the Terraform infra.
-  - Enables the metrics, which can be accessed on port 10250
+  - Enables the metrics, which can be accessed via the metrics-server in kube-system

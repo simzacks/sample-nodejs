@@ -15,13 +15,26 @@
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/name: {{ include "sample-nodejs.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+app.kubernetes.io/version: {{ include "sample-nodejs.imageTag" . | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end }}
 
 {{- define "sample-nodejs.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "sample-nodejs.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}
+
+{{/* The deployed image tag; falls back to the chart appVersion when image.tag is empty. */}}
+{{- define "sample-nodejs.imageTag" -}}
+{{- .Values.image.tag | default .Chart.AppVersion }}
+{{- end }}
+
+{{- define "sample-nodejs.serviceAccountName" -}}
+{{- if .Values.serviceAccount.create }}
+{{- default (include "sample-nodejs.fullname" .) .Values.serviceAccount.name }}
+{{- else }}
+{{- default "default" .Values.serviceAccount.name }}
+{{- end }}
 {{- end }}
 
 {{- define "sample-nodejs.port" -}}
